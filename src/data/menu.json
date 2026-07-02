@@ -1,0 +1,43 @@
+{
+  "categories": [
+    {
+      "id": "tadim",
+      "name": "Tadım Menüsü",
+      "items": [
+        { "id": "t1", "name": "Ege Otları Tabağı", "description": "Mevsim otları, sızma zeytinyağı, limon", "price": 450, "calories": 250 },
+        { "id": "t2", "name": "Köz Patlıcan Ezmesi", "description": "Tahin, sarımsak, süzme yoğurt", "price": 320, "calories": 310 },
+        { "id": "t3", "name": "Ahtapot Izgara", "description": "Fırınlanmış patates yatağında, kapari sos ile", "price": 950, "calories": 420 },
+        { "id": "t4", "name": "Kuzu İncik", "description": "Ağır ateşte pişmiş kuzu incik, firik pilavı", "price": 1250, "calories": 850 }
+      ]
+    },
+    {
+      "id": "vejetaryen",
+      "name": "Vejetaryen Tadım",
+      "items": [
+        { "id": "v1", "name": "Zeytinyağlı Enginar", "description": "İç bakla, dereotu", "price": 400, "calories": 180 },
+        { "id": "v2", "name": "Mücver", "description": "Kabak, havuç, taze yeşillikler, naneli yoğurt sos", "price": 350, "calories": 290 },
+        { "id": "v3", "name": "Mantarlı Risotto", "description": "Kestane mantarı, trüf yağı, parmesan", "price": 750, "calories": 620 }
+      ]
+    },
+    {
+      "id": "tatli",
+      "name": "Tatlı",
+      "items": [
+        { "id": "d1", "name": "Fırın Sütlaç", "description": "Fındık kırığı, tarçın", "price": 250, "calories": 350 },
+        { "id": "d2", "name": "Çikolatalı Sufle", "description": "Vanilyalı dondurma ile", "price": 380, "calories": 600 },
+        { "id": "d3", "name": "Tahinli Kabak Tatlısı", "description": "Ceviz, kaymak", "price": 280, "calories": 450 }
+      ]
+    },
+    {
+      "id": "icecekler",
+      "name": "İçecekler",
+      "items": [
+        { "id": "b1", "name": "Ev Yapımı Limonata", "description": "Taze nane yaprakları ile", "price": 150, "calories": 120 },
+        { "id": "b2", "name": "Türk Kahvesi", "description": "Kumda ağır ateşte", "price": 120, "calories": 5 },
+        { "id": "b3", "name": "Demleme Çay", "description": "Tirebolu çayı", "price": 80, "calories": 0 },
+        { "id": "b4", "name": "Doğal Maden Suyu", "description": "Limon dilimi ile", "price": 90, "calories": 0 },
+        { "id": "b5", "name": "Taze Sıkılmış Portakal Suyu", "description": "", "price": 180, "calories": 110 }
+      ]
+    }
+  ]
+}
