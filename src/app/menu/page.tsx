@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0; 
 
 export default async function MenuPage() {
-  let categories = [];
+  let categories: any[] = [];
   let errorMessage = null;
 
   try {
