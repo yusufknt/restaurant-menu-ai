@@ -47,15 +47,18 @@ export async function POST(req: Request) {
         return NextResponse.json({ status: 'ok' });
       }
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('products')
         .update({ price: parseFloat(newPrice) })
-        .ilike('name', productName); // ilike for case-insensitive match
+        .ilike('name', `%${productName}%`) // Partial match
+        .select();
 
       if (error) {
         await sendMessage(chatId, `Hata oluştu: ${error.message}`);
+      } else if (!data || data.length === 0) {
+        await sendMessage(chatId, `❌ Menüde "${productName}" ismini içeren bir ürün bulunamadı. Lütfen tam veya benzer ismini yazın.`);
       } else {
-        await sendMessage(chatId, `✅ ${productName} fiyatı ${newPrice} ₺ olarak güncellendi!`);
+        await sendMessage(chatId, `✅ ${data[0].name} fiyatı ${newPrice} ₺ olarak güncellendi!`);
       }
       return NextResponse.json({ status: 'ok' });
     }
@@ -64,15 +67,18 @@ export async function POST(req: Request) {
     if (text.startsWith('/sil')) {
       const productName = text.replace('/sil', '').trim();
       
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('products')
         .delete()
-        .ilike('name', productName);
+        .ilike('name', `%${productName}%`)
+        .select();
 
       if (error) {
         await sendMessage(chatId, `Hata oluştu: ${error.message}`);
+      } else if (!data || data.length === 0) {
+        await sendMessage(chatId, `❌ Menüde "${productName}" ismini içeren bir ürün bulunamadı.`);
       } else {
-        await sendMessage(chatId, `🗑️ ${productName} menüden silindi!`);
+        await sendMessage(chatId, `🗑️ ${data[0].name} menüden silindi!`);
       }
       return NextResponse.json({ status: 'ok' });
     }
