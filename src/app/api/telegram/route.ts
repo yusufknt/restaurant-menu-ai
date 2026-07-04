@@ -12,6 +12,117 @@ async function sendMessage(chatId: number, text: string) {
   });
 }
 
+async function handlePhotoUpload(chatId: number, photo: any, productId: string, productName: string) {
+  if (!supabase) return false;
+  try {
+    const fileRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${photo.file_id}`);
+    const fileData = await fileRes.json();
+    
+    if (fileData.ok) {
+      const filePath = fileData.result.file_path;
+      const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${filePath}`;
+      
+      const imgRes = await fetch(fileUrl);
+      const imgBlob = await imgRes.blob();
+      const fileName = `${productId}-${Date.now()}.jpg`;
+
+      const { data: storageData, error: uploadError } = await supabase.storage
+        .from('menu-images')
+        .upload(fileName, imgBlob, { contentType: 'image/jpeg' });
+
+      if (uploadError) {
+        await sendMessage(chatId, `Fotoğraf yüklenemedi: ${uploadError.message}`);
+        return false;
+      }
+
+      const publicUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/menu-images/${fileName}`;
+      
+      const { error: dbError } = await supabase
+        .from('products')
+        .update({ image_url: publicUrl })
+        .eq('id', productId);
+
+      if (dbError) {
+        await sendMessage(chatId, `Veritabanı güncellenemedi: ${dbError.message}`);
+        return false;
+      } else {
+        await sendMessage(chatId, `📸 ${productName} fotoğrafı başarıyla eklendi/güncellendi!`);
+        return true;
+      }
+    }
+  } catch (err: any) {
+    await sendMessage(chatId, `Fotoğraf yüklenirken hata oluştu: ${err.message}`);
+  }
+  return false;
+}
+
+async function parseMessageWithGemini(text: string) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error("GEMINI_API_KEY is not defined in env.");
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Aşağıdaki Türkçe metni analiz et ve restorandaki menü yönetim eylemini belirle. 
+Metin: "${text}"
+
+Eylemler:
+1. UPDATE_PRICE: Bir ürünün fiyatını günceller. (Örn: "latte fiyatını 180 yap", "Kola 45 TL olsun")
+2. DELETE_PRODUCT: Menüden bir ürünü siler. (Örn: "menüden americano'yu kaldır", "sufleyi sil")
+3. ADD_PRODUCT: Menüye yeni ürün ekler. (Örn: "menüye latte ekle fiyatı 250 olsun", "icecekler kategorisine ayran ekle fiyatı 30 kalori 80")
+4. UNKNOWN: Eğer metin menü güncellemeyle alakalı değilse veya anlaşılmıyorsa.
+
+ADD_PRODUCT eyleminde kategori id'leri şunlardan biri olmalıdır: "tadim", "vejetaryen", "tatli", "icecekler". Eğer kategori belirtilmediyse, tahmin etmeye çalış veya varsayılan olarak en uygununu seç (örneğin kahve/limonata/kola/çay ise "icecekler", tatlılar ise "tatli", tadım tabağı/incik/ızgara vb ise "tadim", salatalar/sebzeli yemekler ise "vejetaryen" seç).
+`
+            }]
+          }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "object",
+              properties: {
+                action: {
+                  type: "string",
+                  enum: ["UPDATE_PRICE", "DELETE_PRODUCT", "ADD_PRODUCT", "UNKNOWN"]
+                },
+                productName: { type: "string", description: "Ürünün tam veya tahmini ismi (ilk harfleri büyük olsun, Örn: Filtre Kahve)" },
+                price: { type: "number", description: "Varsa ürünün fiyatı" },
+                category: { type: "string", description: "ADD_PRODUCT için kategori id'si: tadim, vejetaryen, tatli, icecekler" },
+                calories: { type: "number", description: "Varsa kalori değeri" },
+                description: { type: "string", description: "Varsa ürünün açıklaması" }
+              },
+              required: ["action"]
+            }
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Gemini API error status:", response.status, await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (resultText) {
+      return JSON.parse(resultText);
+    }
+  } catch (error) {
+    console.error("Gemini API call failed:", error);
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
   if (!supabase) {
     console.error("Supabase istemcisi başlatılamadı (.env eksik olabilir).");
@@ -39,7 +150,123 @@ export async function POST(req: Request) {
     */
 
     const text = message.text || message.caption || '';
-    
+
+    // 1. Natural Language processing with Gemini (runs if text doesn't start with '/')
+    if (text && !text.startsWith('/')) {
+      const parsed = await parseMessageWithGemini(text);
+      
+      if (parsed && parsed.action !== 'UNKNOWN') {
+        const { action, productName, price, category, calories, description } = parsed;
+
+        if (action === 'UPDATE_PRICE') {
+          if (!productName || price === undefined) {
+            await sendMessage(chatId, "⚠️ Güncellemek istediğiniz ürün adını veya yeni fiyatı anlayamadım.");
+            return NextResponse.json({ status: 'ok' });
+          }
+
+          const { data: searchData, error: searchError } = await supabase
+            .from('products')
+            .select('*')
+            .ilike('name', `%${productName}%`);
+
+          if (searchError) {
+            await sendMessage(chatId, `Hata oluştu: ${searchError.message}`);
+          } else if (!searchData || searchData.length === 0) {
+            await sendMessage(chatId, `❌ Menüde "${productName}" ismini içeren bir ürün bulunamadı.`);
+          } else if (searchData.length > 1) {
+            const isimler = searchData.map(item => item.name).join(', ');
+            await sendMessage(chatId, `⚠️ Birden fazla ürün bulundu: ${isimler}.\nLütfen hangisi olduğunu daha net yazın.`);
+          } else {
+            const targetProduct = searchData[0];
+            const { error: updateError } = await supabase
+              .from('products')
+              .update({ price })
+              .eq('id', targetProduct.id);
+              
+            if (updateError) {
+              await sendMessage(chatId, `Güncelleme hatası: ${updateError.message}`);
+            } else {
+              await sendMessage(chatId, `✅ ${targetProduct.name} fiyatı ${price} ₺ olarak güncellendi!`);
+              if (message.photo) {
+                const photo = message.photo[message.photo.length - 1];
+                await handlePhotoUpload(chatId, photo, targetProduct.id, targetProduct.name);
+              }
+            }
+          }
+          return NextResponse.json({ status: 'ok' });
+        }
+
+        if (action === 'DELETE_PRODUCT') {
+          if (!productName) {
+            await sendMessage(chatId, "⚠️ Silmek istediğiniz ürün adını anlayamadım.");
+            return NextResponse.json({ status: 'ok' });
+          }
+
+          const { data: searchData, error: searchError } = await supabase
+            .from('products')
+            .select('*')
+            .ilike('name', `%${productName}%`);
+
+          if (searchError) {
+            await sendMessage(chatId, `Hata oluştu: ${searchError.message}`);
+          } else if (!searchData || searchData.length === 0) {
+            await sendMessage(chatId, `❌ Menüde "${productName}" ismini içeren bir ürün bulunamadı.`);
+          } else if (searchData.length > 1) {
+            const isimler = searchData.map(item => item.name).join(', ');
+            await sendMessage(chatId, `⚠️ Birden fazla ürün bulundu: ${isimler}.\nLütfen hangisi olduğunu daha net yazın.`);
+          } else {
+            const targetProduct = searchData[0];
+            const { error: deleteError } = await supabase
+              .from('products')
+              .delete()
+              .eq('id', targetProduct.id);
+
+            if (deleteError) {
+              await sendMessage(chatId, `Silme hatası: ${deleteError.message}`);
+            } else {
+              await sendMessage(chatId, `🗑️ ${targetProduct.name} menüden silindi!`);
+            }
+          }
+          return NextResponse.json({ status: 'ok' });
+        }
+
+        if (action === 'ADD_PRODUCT') {
+          if (!productName || price === undefined) {
+            await sendMessage(chatId, "⚠️ Eklenecek ürünün adını veya fiyatını anlayamadım. Örnek: 'menüye ayran ekle fiyatı 30 olsun'");
+            return NextResponse.json({ status: 'ok' });
+          }
+
+          // Generate ID from name safely by replacing Turkish characters
+          const id = productName.toLowerCase()
+            .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c')
+            .replace(/\s+/g, '-')
+            .replace(/[^a-z0-9-]/g, '');
+          const finalCategory = category || 'icecekler';
+
+          const { error } = await supabase.from('products').insert({
+            id,
+            category_id: finalCategory,
+            name: productName,
+            price: price,
+            calories: calories || 0,
+            description: description || null
+          });
+
+          if (error) {
+            await sendMessage(chatId, `Ekleme hatası: ${error.message}`);
+          } else {
+            await sendMessage(chatId, `➕ ${productName} başarıyla menüye eklendi!`);
+            if (message.photo) {
+              const photo = message.photo[message.photo.length - 1];
+              await handlePhotoUpload(chatId, photo, id, productName);
+            }
+          }
+          return NextResponse.json({ status: 'ok' });
+        }
+      }
+    }
+
+    // 2. Fallback to Slash Commands (for backwards compatibility / backup)
     // Command: /fiyat
     if (text.startsWith('/fiyat')) {
       const parts = text.replace('/fiyat', '').trim().split(' ');
@@ -51,7 +278,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ status: 'ok' });
       }
 
-      // 1. Önce ürünü bul
       const { data: searchData, error: searchError } = await supabase
         .from('products')
         .select('*')
@@ -65,7 +291,6 @@ export async function POST(req: Request) {
         const isimler = searchData.map(item => item.name).join(', ');
         await sendMessage(chatId, `⚠️ Birden fazla ürün bulundu: ${isimler}.\nLütfen hangisi olduğunu daha net yazın (Örn: /fiyat ${searchData[0].name} ${newPrice})`);
       } else {
-        // Tek ürün bulundu, güncelle
         const targetProduct = searchData[0];
         const { error: updateError } = await supabase
           .from('products')
@@ -85,7 +310,6 @@ export async function POST(req: Request) {
     if (text.startsWith('/sil')) {
       const productName = text.replace('/sil', '').trim();
       
-      // 1. Önce ürünü bul
       const { data: searchData, error: searchError } = await supabase
         .from('products')
         .select('*')
@@ -116,7 +340,6 @@ export async function POST(req: Request) {
 
     // Command: /ekle
     if (text.startsWith('/ekle')) {
-      // Format: /ekle categoryId, Name, Price, Calories, Description
       const content = text.replace('/ekle', '').trim();
       const parts = content.split(',').map((p: string) => p.trim());
       
@@ -143,11 +366,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'ok' });
     }
 
-    // Handle Photos
+    // Handle Photos (Fallback)
     if (message.photo && message.caption) {
       const productName = message.caption.trim();
       
-      // 1. Önce ürünü bulalım ki fotoğrafı boşuna indirmeyelim
       const { data: searchData, error: searchError } = await supabase
         .from('products')
         .select('*')
@@ -163,50 +385,21 @@ export async function POST(req: Request) {
       }
 
       const targetProduct = searchData[0];
-      const photo = message.photo[message.photo.length - 1]; // get highest resolution
-      
-      // 1. Get file path from Telegram
-      const fileRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${photo.file_id}`);
-      const fileData = await fileRes.json();
-      
-      if (fileData.ok) {
-        const filePath = fileData.result.file_path;
-        const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${filePath}`;
-        
-        // 2. Download image
-        const imgRes = await fetch(fileUrl);
-        const imgBlob = await imgRes.blob();
-        const fileName = `${targetProduct.id}-${Date.now()}.jpg`;
-
-        // 3. Upload to Supabase Storage
-        const { data: storageData, error: uploadError } = await supabase.storage
-          .from('menu-images')
-          .upload(fileName, imgBlob, { contentType: 'image/jpeg' });
-
-        if (uploadError) {
-          await sendMessage(chatId, `Fotoğraf yüklenemedi: ${uploadError.message}`);
-          return NextResponse.json({ status: 'ok' });
-        }
-
-        // 4. Update Product in DB
-        const publicUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/menu-images/${fileName}`;
-        
-        const { error: dbError } = await supabase
-          .from('products')
-          .update({ image_url: publicUrl })
-          .eq('id', targetProduct.id);
-
-        if (dbError) {
-          await sendMessage(chatId, `Veritabanı güncellenemedi: ${dbError.message}`);
-        } else {
-          await sendMessage(chatId, `📸 ${targetProduct.name} fotoğrafı başarıyla eklendi/güncellendi!`);
-        }
-      }
+      const photo = message.photo[message.photo.length - 1];
+      await handlePhotoUpload(chatId, photo, targetProduct.id, targetProduct.name);
       return NextResponse.json({ status: 'ok' });
     }
 
     // Default response
-    await sendMessage(chatId, "Merhaba! Ben menü yönetim botuyum.\nKomutlar:\n- /fiyat Ürün Fiyat\n- /sil Ürün\n- /ekle KategoriId, İsim, Fiyat, Kalori\n- Fotoğraf atıp altına ürün ismi yazarak resim güncelleyebilirsiniz.");
+    await sendMessage(chatId, "Merhaba! Ben yapay zeka destekli menü yönetim botuyum.\n\n" +
+                           "Doğal dille menüyü güncelleyebilirim. Örnek komutlar:\n" +
+                           "- \"Latte fiyatını 180 TL yap.\"\n" +
+                           "- \"Menüden Americano'yu sil.\"\n" +
+                           "- \"Menüye Frambuazlı Cheesecake ekle, fiyatı 190 TL olsun, kalori 340\" (Ayrıca bu mesaja fotoğraf ekleyerek gönderebilirsiniz!)\n\n" +
+                           "Alternatif olarak klasik komutları kullanabilirsiniz:\n" +
+                           "- /fiyat Ürün Fiyat\n" +
+                           "- /sil Ürün\n" +
+                           "- /ekle KategoriId, İsim, Fiyat, Kalori");
     return NextResponse.json({ status: 'ok' });
 
   } catch (error) {
