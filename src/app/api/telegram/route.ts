@@ -163,6 +163,33 @@ export async function POST(req: Request) {
 
     const text = message.text || message.caption || '';
 
+    // Diagnostic command to check active commit and environment variables
+    if (text === '/envdebug') {
+      const keys = Object.keys(process.env).filter(k => 
+        !k.toLowerCase().includes('secret') && 
+        !k.toLowerCase().includes('key') && 
+        !k.toLowerCase().includes('token') &&
+        !k.toLowerCase().includes('password')
+      );
+      const hasGeminiKey = !!(process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+      const hasSupabaseKey = !!(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+      const hasBotToken = !!process.env.TELEGRAM_BOT_TOKEN;
+      
+      const commitMsg = process.env.VERCEL_GIT_COMMIT_MESSAGE || 'N/A (Local or Direct Deploy)';
+      const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || 'N/A';
+      const vercelEnv = process.env.VERCEL_ENV || 'N/A';
+
+      await sendMessage(chatId, `🔍 Vercel Çevresel Bilgiler:\n\n` +
+                             `- Aktif Kod Commit: "${commitMsg}"\n` +
+                             `- Commit SHA: ${commitSha}\n` +
+                             `- Vercel Ortamı: ${vercelEnv}\n\n` +
+                             `- GEMINI_API_KEY Tanımlı mı?: ${hasGeminiKey ? 'Evet' : 'Hayır'}\n` +
+                             `- Supabase Key Tanımlı mı?: ${hasSupabaseKey ? 'Evet' : 'Hayır'}\n` +
+                             `- Bot Token Tanımlı mı?: ${hasBotToken ? 'Evet' : 'Hayır'}\n\n` +
+                             `Mevcut Çevre Değişkenleri: ${keys.join(', ')}`);
+      return NextResponse.json({ status: 'ok' });
+    }
+
     // 1. Natural Language processing with Gemini (runs if text doesn't start with '/')
     if (text && !text.startsWith('/')) {
       const parsed = await parseMessageWithGemini(text);
