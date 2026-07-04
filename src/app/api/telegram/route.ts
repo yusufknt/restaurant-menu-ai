@@ -30,6 +30,7 @@ export async function POST(req: Request) {
 
     // Security check: Only allow specific user(s)
     const allowedIds = ALLOWED_CHAT_ID ? ALLOWED_CHAT_ID.split(',').map(id => id.trim()) : [];
+    console.log("Debug Webhook Access:", { incomingChatId: chatId.toString(), allowedIds, rawEnv: ALLOWED_CHAT_ID });
     if (!allowedIds.includes(chatId.toString())) {
       await sendMessage(chatId, "Yetkisiz erişim. Bu botu kullanma yetkiniz yok.");
       return NextResponse.json({ status: 'ok' });
