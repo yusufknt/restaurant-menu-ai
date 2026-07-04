@@ -180,6 +180,7 @@ export async function POST(req: Request) {
       const vercelEnv = process.env.VERCEL_ENV || 'N/A';
 
       await sendMessage(chatId, `🔍 Vercel Çevresel Bilgiler:\n\n` +
+                             `- Vercel Proje Adı: "${process.env.VERCEL_PROJECT_NAME || 'N/A'}"\n` +
                              `- Aktif Kod Commit: "${commitMsg}"\n` +
                              `- Commit SHA: ${commitSha}\n` +
                              `- Vercel Ortamı: ${vercelEnv}\n\n` +
