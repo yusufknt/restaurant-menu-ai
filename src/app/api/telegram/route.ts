@@ -60,7 +60,7 @@ async function parseMessageWithGemini(text: string) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.error("GEMINI_API_KEY is not defined in env.");
-    return null;
+    return { error: "GEMINI_API_KEY Vercel üzerinde tanımlı değil veya henüz aktif olmamış (Yeniden Dağıtım/Redeploy yapılmamış olabilir)." };
   }
 
   try {
@@ -108,8 +108,9 @@ ADD_PRODUCT eyleminde kategori id'leri şunlardan biri olmalıdır: "tadim", "ve
     );
 
     if (!response.ok) {
-      console.error("Gemini API error status:", response.status, await response.text());
-      return null;
+      const errText = await response.text();
+      console.error("Gemini API error status:", response.status, errText);
+      return { error: `Gemini API hatası (Durum: ${response.status}): ${errText.substring(0, 150)}` };
     }
 
     const data = await response.json();
@@ -117,10 +118,11 @@ ADD_PRODUCT eyleminde kategori id'leri şunlardan biri olmalıdır: "tadim", "ve
     if (resultText) {
       return JSON.parse(resultText);
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini API call failed:", error);
+    return { error: `Gemini API çağrı hatası: ${error.message || error}` };
   }
-  return null;
+  return { error: "Gemini API yanıtı ayrıştırılamadı." };
 }
 
 export async function POST(req: Request) {
@@ -155,7 +157,13 @@ export async function POST(req: Request) {
     if (text && !text.startsWith('/')) {
       const parsed = await parseMessageWithGemini(text);
       
-      if (parsed && parsed.action !== 'UNKNOWN') {
+      if (parsed) {
+        if ('error' in parsed) {
+          await sendMessage(chatId, `⚠️ Yapay zeka modülü çalışırken bir hata oluştu:\n${parsed.error}`);
+          return NextResponse.json({ status: 'ok' });
+        }
+
+        if (parsed.action !== 'UNKNOWN') {
         const { action, productName, price, category, calories, description } = parsed;
 
         if (action === 'UPDATE_PRICE') {
@@ -265,6 +273,7 @@ export async function POST(req: Request) {
         }
       }
     }
+  }
 
     // 2. Fallback to Slash Commands (for backwards compatibility / backup)
     // Command: /fiyat
