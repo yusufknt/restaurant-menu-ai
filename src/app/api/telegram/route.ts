@@ -29,7 +29,8 @@ export async function POST(req: Request) {
     const chatId = message.chat.id;
 
     // Security check: Only allow specific user(s)
-    if (chatId.toString() !== ALLOWED_CHAT_ID) {
+    const allowedIds = ALLOWED_CHAT_ID ? ALLOWED_CHAT_ID.split(',').map(id => id.trim()) : [];
+    if (!allowedIds.includes(chatId.toString())) {
       await sendMessage(chatId, "Yetkisiz erişim. Bu botu kullanma yetkiniz yok.");
       return NextResponse.json({ status: 'ok' });
     }
