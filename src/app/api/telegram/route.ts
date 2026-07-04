@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const ALLOWED_CHAT_ID = process.env.TELEGRAM_ALLOWED_CHAT_IDS;
 
@@ -57,7 +60,7 @@ async function handlePhotoUpload(chatId: number, photo: any, productId: string, 
 }
 
 async function parseMessageWithGemini(text: string) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
   if (!apiKey) {
     console.error("GEMINI_API_KEY is not defined in env.");
     return { error: "GEMINI_API_KEY Vercel üzerinde tanımlı değil veya henüz aktif olmamış (Yeniden Dağıtım/Redeploy yapılmamış olabilir)." };
