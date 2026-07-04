@@ -47,18 +47,32 @@ export async function POST(req: Request) {
         return NextResponse.json({ status: 'ok' });
       }
 
-      const { data, error } = await supabase
+      // 1. Önce ürünü bul
+      const { data: searchData, error: searchError } = await supabase
         .from('products')
-        .update({ price: parseFloat(newPrice) })
-        .ilike('name', `%${productName}%`) // Partial match
-        .select();
+        .select('*')
+        .ilike('name', `%${productName}%`);
 
-      if (error) {
-        await sendMessage(chatId, `Hata oluştu: ${error.message}`);
-      } else if (!data || data.length === 0) {
-        await sendMessage(chatId, `❌ Menüde "${productName}" ismini içeren bir ürün bulunamadı. Lütfen tam veya benzer ismini yazın.`);
+      if (searchError) {
+        await sendMessage(chatId, `Hata oluştu: ${searchError.message}`);
+      } else if (!searchData || searchData.length === 0) {
+        await sendMessage(chatId, `❌ Menüde "${productName}" ismini içeren bir ürün bulunamadı.`);
+      } else if (searchData.length > 1) {
+        const isimler = searchData.map(item => item.name).join(', ');
+        await sendMessage(chatId, `⚠️ Birden fazla ürün bulundu: ${isimler}.\nLütfen hangisi olduğunu daha net yazın (Örn: /fiyat ${searchData[0].name} ${newPrice})`);
       } else {
-        await sendMessage(chatId, `✅ ${data[0].name} fiyatı ${newPrice} ₺ olarak güncellendi!`);
+        // Tek ürün bulundu, güncelle
+        const targetProduct = searchData[0];
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({ price: parseFloat(newPrice) })
+          .eq('id', targetProduct.id);
+          
+        if (updateError) {
+          await sendMessage(chatId, `Güncelleme hatası: ${updateError.message}`);
+        } else {
+          await sendMessage(chatId, `✅ ${targetProduct.name} fiyatı ${newPrice} ₺ olarak güncellendi!`);
+        }
       }
       return NextResponse.json({ status: 'ok' });
     }
@@ -67,18 +81,31 @@ export async function POST(req: Request) {
     if (text.startsWith('/sil')) {
       const productName = text.replace('/sil', '').trim();
       
-      const { data, error } = await supabase
+      // 1. Önce ürünü bul
+      const { data: searchData, error: searchError } = await supabase
         .from('products')
-        .delete()
-        .ilike('name', `%${productName}%`)
-        .select();
+        .select('*')
+        .ilike('name', `%${productName}%`);
 
-      if (error) {
-        await sendMessage(chatId, `Hata oluştu: ${error.message}`);
-      } else if (!data || data.length === 0) {
+      if (searchError) {
+        await sendMessage(chatId, `Hata oluştu: ${searchError.message}`);
+      } else if (!searchData || searchData.length === 0) {
         await sendMessage(chatId, `❌ Menüde "${productName}" ismini içeren bir ürün bulunamadı.`);
+      } else if (searchData.length > 1) {
+        const isimler = searchData.map(item => item.name).join(', ');
+        await sendMessage(chatId, `⚠️ Birden fazla ürün bulundu: ${isimler}.\nLütfen hangisi olduğunu daha net yazın (Örn: /sil ${searchData[0].name})`);
       } else {
-        await sendMessage(chatId, `🗑️ ${data[0].name} menüden silindi!`);
+        const targetProduct = searchData[0];
+        const { error: deleteError } = await supabase
+          .from('products')
+          .delete()
+          .eq('id', targetProduct.id);
+
+        if (deleteError) {
+          await sendMessage(chatId, `Silme hatası: ${deleteError.message}`);
+        } else {
+          await sendMessage(chatId, `🗑️ ${targetProduct.name} menüden silindi!`);
+        }
       }
       return NextResponse.json({ status: 'ok' });
     }
@@ -115,6 +142,23 @@ export async function POST(req: Request) {
     // Handle Photos
     if (message.photo && message.caption) {
       const productName = message.caption.trim();
+      
+      // 1. Önce ürünü bulalım ki fotoğrafı boşuna indirmeyelim
+      const { data: searchData, error: searchError } = await supabase
+        .from('products')
+        .select('*')
+        .ilike('name', `%${productName}%`);
+
+      if (searchError || !searchData || searchData.length === 0) {
+        await sendMessage(chatId, `❌ "${productName}" isminde bir ürün bulunamadı. Fotoğraf yüklenmedi.`);
+        return NextResponse.json({ status: 'ok' });
+      } else if (searchData.length > 1) {
+        const isimler = searchData.map(item => item.name).join(', ');
+        await sendMessage(chatId, `⚠️ Birden fazla ürün bulundu: ${isimler}.\nLütfen resmi tekrar atıp açıklama kısmına daha belirgin bir isim yazın.`);
+        return NextResponse.json({ status: 'ok' });
+      }
+
+      const targetProduct = searchData[0];
       const photo = message.photo[message.photo.length - 1]; // get highest resolution
       
       // 1. Get file path from Telegram
@@ -128,7 +172,7 @@ export async function POST(req: Request) {
         // 2. Download image
         const imgRes = await fetch(fileUrl);
         const imgBlob = await imgRes.blob();
-        const fileName = `${productName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.jpg`;
+        const fileName = `${targetProduct.id}-${Date.now()}.jpg`;
 
         // 3. Upload to Supabase Storage
         const { data: storageData, error: uploadError } = await supabase.storage
@@ -146,12 +190,12 @@ export async function POST(req: Request) {
         const { error: dbError } = await supabase
           .from('products')
           .update({ image_url: publicUrl })
-          .ilike('name', productName);
+          .eq('id', targetProduct.id);
 
         if (dbError) {
           await sendMessage(chatId, `Veritabanı güncellenemedi: ${dbError.message}`);
         } else {
-          await sendMessage(chatId, `📸 ${productName} fotoğrafı başarıyla eklendi/güncellendi!`);
+          await sendMessage(chatId, `📸 ${targetProduct.name} fotoğrafı başarıyla eklendi/güncellendi!`);
         }
       }
       return NextResponse.json({ status: 'ok' });
