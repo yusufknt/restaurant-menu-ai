@@ -81,7 +81,14 @@ Eylemler:
 3. ADD_PRODUCT: Menüye yeni ürün ekler. (Örn: "menüye latte ekle fiyatı 250 olsun", "icecekler kategorisine ayran ekle fiyatı 30 kalori 80")
 4. UNKNOWN: Eğer metin menü güncellemeyle alakalı değilse veya anlaşılmıyorsa.
 
-ADD_PRODUCT eyleminde kategori id'leri şunlardan biri olmalıdır: "tadim", "vejetaryen", "tatli", "icecekler". Eğer kategori belirtilmediyse, tahmin etmeye çalış veya varsayılan olarak en uygununu seç (örneğin kahve/limonata/kola/çay ise "icecekler", tatlılar ise "tatli", tadım tabağı/incik/ızgara vb ise "tadim", salatalar/sebzeli yemekler ise "vejetaryen" seç).
+Önemli Kurallar:
+- "productName" alanında ürünün ek almamış, yalın haldeki ismini döndür. Kelime sonlarındaki Türkçe yönelme, belirtme veya iyelik eklerini (-i, -yi, -yi, -sini, -u, -nü vb.) mutlaka temizle. Örneğin:
+  * "köz patlıcan ezmesini 150 yap" -> "Köz Patlıcan Ezmesi"
+  * "latteyi 90 lira yap" -> "Latte"
+  * "kola fiyatını 45 tl yap" -> "Kola"
+  * "sufleyi sil" -> "Sufle"
+- "price" alanı sadece sayı (float/integer) olmalıdır. Lira, TL, ₺ gibi para birimi kelimelerini veya sembollerini tamamen temizle. Örneğin: "150 lira" -> 150, "90 TL" -> 90.
+- ADD_PRODUCT eyleminde kategori id'leri şunlardan biri olmalıdır: "tadim", "vejetaryen", "tatli", "icecekler". Eğer kategori belirtilmediyse, tahmin etmeye çalış veya varsayılan olarak en uygununu seç (örneğin kahve/limonata/kola/çay ise "icecekler", tatlılar ise "tatli", ana yemek ise "tadim", salatalar/sebzeli yemekler ise "vejetaryen" seç).
 `
             }]
           }],
@@ -94,8 +101,8 @@ ADD_PRODUCT eyleminde kategori id'leri şunlardan biri olmalıdır: "tadim", "ve
                   type: "string",
                   enum: ["UPDATE_PRICE", "DELETE_PRODUCT", "ADD_PRODUCT", "UNKNOWN"]
                 },
-                productName: { type: "string", description: "Ürünün tam veya tahmini ismi (ilk harfleri büyük olsun, Örn: Filtre Kahve)" },
-                price: { type: "number", description: "Varsa ürünün fiyatı" },
+                productName: { type: "string", description: "Ürünün ek almamış, yalın haldeki ismi (kelime başları büyük harf olmalı, Örn: Köz Patlıcan Ezmesi)" },
+                price: { type: "number", description: "Varsa ürünün fiyatı (sadece sayı)" },
                 category: { type: "string", description: "ADD_PRODUCT için kategori id'si: tadim, vejetaryen, tatli, icecekler" },
                 calories: { type: "number", description: "Varsa kalori değeri" },
                 description: { type: "string", description: "Varsa ürünün açıklaması" }
