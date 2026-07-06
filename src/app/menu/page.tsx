@@ -65,11 +65,9 @@ export default async function MenuPage() {
                   <div key={item.id} className={styles.menuItem}>
                     {item.image_url && (
                       <div className={styles.itemImageWrapper}>
-                        <Image 
+                        <img 
                           src={item.image_url} 
                           alt={item.name} 
-                          fill 
-                          style={{ objectFit: 'cover' }} 
                         />
                       </div>
                     )}
